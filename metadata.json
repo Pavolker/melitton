@@ -1,0 +1,9 @@
+
+{
+  "name": "MeliGestão - Controle de Meliponário",
+  "description": "Aplicativo completo para gestão de meliponários, permitindo o controle de colmeias, iscas, manejos e produção de mel com insights baseados em dados.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
