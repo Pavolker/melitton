@@ -1,6 +1,11 @@
 import { Box, Bait, ManagementLog } from './types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const RAW_API_URL = import.meta.env.VITE_API_URL;
+const API_URL =
+    (RAW_API_URL && RAW_API_URL.trim()) ||
+    (import.meta.env.PROD
+        ? 'https://backend-production-1e27.up.railway.app/api'
+        : 'http://localhost:3001/api');
 
 export const api = {
     getBoxes: async (): Promise<Box[]> => {
