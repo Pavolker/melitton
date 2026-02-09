@@ -10,6 +10,9 @@ export default function BoxForm({ boxes, onSave }: { boxes?: Box[], onSave: (b: 
   const { id } = useParams();
   const editingBox = boxes?.find(b => b.id === id);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+  const MAX_PHOTO_DIMENSION = 800;
+  const JPEG_QUALITY = 0.6;
 
   const [formData, setFormData] = useState<Partial<Box>>({
     name: '',
@@ -44,14 +47,70 @@ export default function BoxForm({ boxes, onSave }: { boxes?: Box[], onSave: (b: 
     photoInputRef.current?.click();
   };
 
-  const handlePhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressImageToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+
+        const { width, height } = img;
+        const scale = Math.min(1, MAX_PHOTO_DIMENSION / Math.max(width, height));
+        const targetWidth = Math.round(width * scale);
+        const targetHeight = Math.round(height * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Failed to compress image'));
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error('Failed to read compressed image'));
+            reader.readAsDataURL(blob);
+          },
+          'image/jpeg',
+          JPEG_QUALITY
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Failed to load image'));
+      };
+
+      img.src = objectUrl;
+    });
+  };
+
+  const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFormData({ ...formData, photo: reader.result as string });
-    };
-    reader.readAsDataURL(file);
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      window.alert('Foto muito grande. Tente uma imagem menor.');
+      e.target.value = '';
+      return;
+    }
+    try {
+      const base64 = await compressImageToBase64(file);
+      setFormData({ ...formData, photo: base64 });
+    } catch (err) {
+      console.error(err);
+      window.alert('Não foi possível processar a foto.');
+    }
   };
 
   const handleGetLocation = () => {
