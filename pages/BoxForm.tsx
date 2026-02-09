@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Camera, MapPin, Info } from 'lucide-react';
 import { Box, BeeSpecies, BoxStatus } from '../types';
@@ -9,6 +9,7 @@ export default function BoxForm({ boxes, onSave }: { boxes?: Box[], onSave: (b: 
   const navigate = useNavigate();
   const { id } = useParams();
   const editingBox = boxes?.find(b => b.id === id);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [formData, setFormData] = useState<Partial<Box>>({
     name: '',
@@ -40,9 +41,17 @@ export default function BoxForm({ boxes, onSave }: { boxes?: Box[], onSave: (b: 
   };
 
   const handleCapturePhoto = () => {
-    // Demo implementation: generate a random bee photo
-    const randomId = Math.floor(Math.random() * 100);
-    setFormData({ ...formData, photo: `https://picsum.photos/id/${randomId}/400/400` });
+    photoInputRef.current?.click();
+  };
+
+  const handlePhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFormData({ ...formData, photo: reader.result as string });
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleGetLocation = () => {
@@ -169,6 +178,14 @@ export default function BoxForm({ boxes, onSave }: { boxes?: Box[], onSave: (b: 
                   </div>
                 )}
               </div>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handlePhotoSelected}
+              />
               <button 
                 type="button" 
                 onClick={handleCapturePhoto}
