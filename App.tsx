@@ -139,28 +139,141 @@ const Navigation = () => {
 };
 
 export default function App() {
-  // No localStorage logic
-  const [appData, setAppData] = useState<AppState>({
-    boxes: [],
-    baits: [],
-    settings: {
-      userName: 'Meliponicultor',
-      inspectionFrequencyDays: 15,
-      theme: 'light'
+  const [appData, setAppData] = useState<AppState>(() => {
+    // Tenta carregar do localStorage como fallback
+    const savedData = localStorage.getItem('melitton_local_data');
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        return {
+          boxes: parsed.boxes || [],
+          baits: parsed.baits || [],
+          settings: {
+            userName: 'Meliponário Pro',
+            inspectionFrequencyDays: 15,
+            theme: 'light'
+          }
+        };
+      } catch (e) {
+        console.error('Error parsing saved data:', e);
+      }
     }
+    
+    // Valor padrão se não houver dados salvos
+    return {
+      boxes: [],
+      baits: [],
+      settings: {
+        userName: 'Meliponário Pro',
+        inspectionFrequencyDays: 15,
+        theme: 'light'
+      }
+    };
   });
+
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     const loadData = async () => {
       try {
         const [boxes, baits] = await Promise.all([api.getBoxes(), api.getBaits()]);
-        setAppData(prev => ({ ...prev, boxes, baits }));
+        // Mescla dados do servidor com dados locais para garantir que nada seja perdido
+        setAppData(prev => {
+          const mergedBoxes = [...boxes, ...prev.boxes.filter(localBox => 
+            !boxes.some(serverBox => serverBox.id === localBox.id)
+          )];
+          
+          const mergedBaits = [...baits, ...prev.baits.filter(localBait => 
+            !baits.some(serverBait => serverBait.id === localBait.id)
+          )];
+          
+          return { ...prev, boxes: mergedBoxes, baits: mergedBaits };
+        });
       } catch (err) {
-        console.error('Failed to load data:', err);
+        console.error('Failed to load data from server, using local data:', err);
+        // Os dados já estão carregados do localStorage no estado inicial
       }
     };
     loadData();
   }, []);
+
+  // Sincroniza dados locais com o servidor periodicamente
+  useEffect(() => {
+    const syncLocalData = async () => {
+      setSyncStatus('syncing');
+      
+      const localData = localStorage.getItem('melitton_local_data');
+      if (!localData) {
+        setSyncStatus('idle');
+        return;
+      }
+
+      try {
+        const { boxes: localBoxes, baits: localBaits } = JSON.parse(localData);
+
+        // Sincroniza boxes locais que não estão no servidor
+        for (const localBox of localBoxes) {
+          if (!appData.boxes.some(serverBox => serverBox.id === localBox.id)) {
+            try {
+              // Verifica se é um ID local (começa com 'local_')
+              if (localBox.id.startsWith('local_')) {
+                // Se for um ID local, cria um novo no servidor
+                const { id, managementHistory, ...boxData } = localBox;
+                await api.createBox(boxData);
+              } else {
+                // Se for um ID do servidor, atualiza
+                await api.updateBox(localBox);
+              }
+            } catch (error) {
+              console.error(`Falha ao sincronizar box ${localBox.id}:`, error);
+            }
+          }
+        }
+
+        // Sincroniza baits locais que não estão no servidor
+        for (const localBait of localBaits) {
+          if (!appData.baits.some(serverBait => serverBait.id === localBait.id)) {
+            try {
+              // Verifica se é um ID local (começa com 'local_')
+              if (localBait.id.startsWith('local_')) {
+                // Se for um ID local, cria um novo no servidor
+                const { id, ...baitData } = localBait;
+                await api.createBait(baitData);
+              } else {
+                // Se for um ID do servidor, atualiza
+                await api.updateBait(localBait);
+              }
+            } catch (error) {
+              console.error(`Falha ao sincronizar bait ${localBait.id}:`, error);
+            }
+          }
+        }
+        
+        setSyncStatus('success');
+        
+        // Volta ao estado idle após 3 segundos
+        setTimeout(() => {
+          setSyncStatus('idle');
+        }, 3000);
+      } catch (error) {
+        console.error('Erro ao sincronizar dados locais:', error);
+        setSyncStatus('error');
+        
+        // Volta ao estado idle após 3 segundos
+        setTimeout(() => {
+          setSyncStatus('idle');
+        }, 3000);
+      }
+    };
+
+    // Executa a sincronização a cada 5 minutos
+    const syncInterval = setInterval(syncLocalData, 5 * 60 * 1000);
+    
+    // Executa uma vez imediatamente
+    syncLocalData();
+
+    return () => clearInterval(syncInterval);
+  }, [appData.boxes, appData.baits]);
 
   const updateAppData = (newData: Partial<AppState>) => {
     setAppData(prev => ({ ...prev, ...newData }));
@@ -248,12 +361,111 @@ export default function App() {
     }
   };
 
+  const exportData = () => {
+    // Inclui dados locais no backup
+    const localData = localStorage.getItem('melitton_local_data');
+    const localParsed = localData ? JSON.parse(localData) : { boxes: [], baits: [] };
+    
+    // Combina dados do estado com dados locais para garantir tudo seja exportado
+    const combinedData = {
+      ...appData,
+      boxes: [...appData.boxes, ...localParsed.boxes.filter((localBox: Box) => 
+        !appData.boxes.some((stateBox: Box) => stateBox.id === localBox.id)
+      )],
+      baits: [...appData.baits, ...localParsed.baits.filter((localBait: Bait) => 
+        !appData.baits.some((stateBait: Bait) => stateBait.id === localBait.id)
+      )]
+    };
+    
+    const dataStr = JSON.stringify(combinedData, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    
+    const exportFileDefaultName = `melitton-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  };
+
+  const importData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedData = JSON.parse(e.target?.result as string);
+        setAppData(importedData);
+        
+        // Salva os dados importados no armazenamento local também
+        const localData = {
+          boxes: importedData.boxes || [],
+          baits: importedData.baits || []
+        };
+        localStorage.setItem('melitton_local_data', JSON.stringify(localData));
+        
+        alert('Dados importados com sucesso!');
+      } catch (error) {
+        console.error('Erro ao importar dados:', error);
+        alert('Erro ao importar dados. Verifique o formato do arquivo.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Componente para mostrar status de sincronização
+  const SyncStatusIndicator = () => {
+    const getStatusColor = () => {
+      switch (syncStatus) {
+        case 'syncing': return 'text-blue-500';
+        case 'success': return 'text-green-500';
+        case 'error': return 'text-red-500';
+        default: return 'text-gray-400';
+      }
+    };
+
+    const getStatusText = () => {
+      switch (syncStatus) {
+        case 'syncing': return 'Sincronizando...';
+        case 'success': return 'Sincronizado';
+        case 'error': return 'Erro na sincronização';
+        default: return 'Sincronizado';
+      }
+    };
+
+    const getStatusIcon = () => {
+      switch (syncStatus) {
+        case 'syncing': 
+          return (
+            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 0a6 6 0 016-6v4a2 2 0 00-2 2H6z"></path>
+            </svg>
+          );
+        case 'success': return '✓';
+        case 'error': return '⚠';
+        default: return '✓';
+      }
+    };
+
+    return (
+      <div className={`flex items-center gap-2 text-xs ${getStatusColor()} px-3 py-1.5 rounded-full bg-gray-100`}>
+        {getStatusIcon()}
+        <span>{getStatusText()}</span>
+      </div>
+    );
+  };
+
   return (
     <HashRouter>
       <div className="min-h-screen md:pl-64 flex flex-col">
         <Navigation />
 
         <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
+          <div className="flex justify-end mb-4">
+            <SyncStatusIndicator />
+          </div>
           <Routes>
             <Route path="/" element={<Dashboard data={appData} />} />
             <Route path="/boxes" element={<BoxList boxes={appData.boxes} />} />
@@ -264,7 +476,15 @@ export default function App() {
             <Route path="/baits/new" element={<BaitForm onSave={addBait} />} />
             <Route path="/baits/edit/:id" element={<BaitForm baits={appData.baits} onSave={updateBait} />} />
             <Route path="/stats" element={<Stats data={appData} />} />
-            <Route path="/settings" element={<SettingsPage settings={appData.settings} onUpdate={(s) => updateAppData({ settings: s })} onReset={() => setAppData(INITIAL_STATE)} />} />
+            <Route path="/settings" element={
+              <SettingsPage 
+                settings={appData.settings} 
+                onUpdate={(s) => updateAppData({ settings: s })} 
+                onReset={() => setAppData(INITIAL_STATE)}
+                onExport={exportData}
+                onImport={importData}
+              />} 
+            />
           </Routes>
         </main>
 

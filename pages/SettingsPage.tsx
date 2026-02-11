@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { User, Bell, Download, Trash2, ShieldCheck, Sun, Moon } from 'lucide-react';
+import React, { useRef } from 'react';
+import { User, Bell, Download, Upload, Trash2, ShieldCheck, Sun, Moon } from 'lucide-react';
 
 interface Settings {
   userName: string;
@@ -8,17 +8,43 @@ interface Settings {
   theme: 'light' | 'dark';
 }
 
-export default function SettingsPage({ settings, onUpdate, onReset }: { settings: Settings, onUpdate: (s: Settings) => void, onReset: () => void }) {
+interface SettingsPageProps {
+  settings: Settings;
+  onUpdate: (s: Settings) => void;
+  onReset: () => void;
+  onExport?: () => void;
+  onImport?: (event: React.ChangeEvent<HTMLInputElement>) => void;
+}
 
-  const handleExport = () => {
-    const data = localStorage.getItem('meligestao_data');
-    if (!data) return;
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `backup_meligestao_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
+export default function SettingsPage({ settings, onUpdate, onReset, onExport, onImport }: SettingsPageProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLocalExport = () => {
+    if (onExport) {
+      onExport();
+    } else {
+      // Fallback para exportação antiga baseada em localStorage
+      const data = localStorage.getItem('meligestao_data');
+      if (!data) return;
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backup_meligestao_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+    }
+  };
+
+  const handleLocalImport = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (onImport) {
+      onImport(event);
+    }
   };
 
   const handleReset = () => {
@@ -80,7 +106,7 @@ export default function SettingsPage({ settings, onUpdate, onReset }: { settings
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <button
-              onClick={handleExport}
+              onClick={handleLocalExport}
               className="bg-gray-50 hover:bg-gray-100 p-4 rounded-2xl flex items-center gap-3 transition-colors"
             >
               <div className="p-2 bg-white rounded-xl text-gray-400 shadow-sm"><Download size={20} /></div>
@@ -90,16 +116,23 @@ export default function SettingsPage({ settings, onUpdate, onReset }: { settings
               </div>
             </button>
             <button
-              className="bg-gray-50 hover:bg-gray-100 p-4 rounded-2xl flex items-center gap-3 transition-colors opacity-50 cursor-not-allowed"
-              title="Em breve"
+              onClick={handleLocalImport}
+              className="bg-gray-50 hover:bg-gray-100 p-4 rounded-2xl flex items-center gap-3 transition-colors"
             >
-              <div className="p-2 bg-white rounded-xl text-gray-400 shadow-sm"><ShieldCheck size={20} /></div>
+              <div className="p-2 bg-white rounded-xl text-gray-400 shadow-sm"><Upload size={20} /></div>
               <div className="text-left">
-                <p className="font-bold text-sm">Sincronizar Nuvem</p>
-                <p className="text-[10px] text-gray-400">Em breve</p>
+                <p className="font-bold text-sm">Importar Backup</p>
+                <p className="text-[10px] text-gray-400">Carregar arquivo JSON</p>
               </div>
             </button>
           </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".json"
+            className="hidden"
+          />
         </section>
 
         <section className="bg-red-50 border border-red-100 rounded-3xl p-6 shadow-sm">
